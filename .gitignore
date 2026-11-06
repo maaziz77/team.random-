@@ -1,0 +1,29 @@
+# Private keys and certificates (never commit these: the repo is public)
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+letsencrypt/
+certs/
+secrets/
+keys/
+
+# Environment files (commit .env.example with placeholder values instead)
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output (rebuilt inside Docker)
+node_modules/
+.venv/
+venv/
+__pycache__/
+dist/
+build/
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
