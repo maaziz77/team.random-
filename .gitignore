@@ -9,6 +9,7 @@ letsencrypt/
 certs/
 secrets/
 keys/
+.deploy/
 
 # Environment files (commit .env.example with placeholder values instead)
 .env

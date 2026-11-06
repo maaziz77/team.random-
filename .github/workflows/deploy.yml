@@ -1,0 +1,47 @@
+name: Deploy
+
+# Start this from the Actions tab: choose Deploy, then Run workflow.
+# "Use workflow from" picks the branch. main is the default and is recommended.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only one deploy runs at a time. A second one waits for the first to finish.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Warn when not deploying main
+        if: github.ref_name != 'main'
+        run: echo "::warning::The live site will run '${GITHUB_REF_NAME}'. Graders use main, so deploy main again when you finish testing."
+
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # The server only allows this key to run its deploy command, and the
+      # commit to deploy is the only thing sent to it.
+      - name: Deploy to the server
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
+            ubuntu@cse312-horrorslop.com "$GITHUB_SHA"
+
+      - name: Check the live site
+        run: curl -fsS --max-time 20 --retry 5 --retry-delay 3 --retry-connrefused -o /dev/null https://cse312-horrorslop.com/
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
