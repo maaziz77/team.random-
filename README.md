@@ -1,4 +1,4 @@
-# Team Random
+# READ ME
 
 CSE 312 team project.
 
