@@ -1,9 +1,19 @@
 name: Deploy
 
 # Start this from the Actions tab: choose Deploy, then Run workflow.
-# "Use workflow from" picks the branch. main is the default and is recommended.
+# "Use workflow from" picks the branch. "Where to deploy" picks the server copy.
+# The test copies are listed first so that main is always a deliberate choice.
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: Where to deploy (main is the live product)
+        required: true
+        type: choice
+        options:
+          - test-1
+          - test-2
+          - main
 
 permissions:
   contents: read
@@ -19,7 +29,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Warn when not deploying main
-        if: github.ref_name != 'main'
+        if: inputs.target == 'main' && github.ref_name != 'main'
         run: echo "::warning::The live site will run '${GITHUB_REF_NAME}'. Graders use main, so deploy main again when you finish testing."
 
       - name: Set up SSH
@@ -33,13 +43,16 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       # The server only allows this key to run its deploy command, and the
-      # commit to deploy is the only thing sent to it.
+      # target and commit are the only things sent to it.
       - name: Deploy to the server
+        env:
+          DEPLOY_TARGET: ${{ inputs.target }}
         run: |
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
-            ubuntu@cse312-horrorslop.com "$GITHUB_SHA"
+            ubuntu@cse312-horrorslop.com "$DEPLOY_TARGET $GITHUB_SHA"
 
       - name: Check the live site
+        if: inputs.target == 'main'
         run: curl -fsS --max-time 20 --retry 5 --retry-delay 3 --retry-connrefused -o /dev/null https://cse312-horrorslop.com/
 
       - name: Remove the SSH key

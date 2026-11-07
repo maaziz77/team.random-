@@ -1,0 +1,9 @@
+[Unit]
+Description=Stop idle CSE 312 test copies
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/usr/local/bin/cse312-stop-idle
