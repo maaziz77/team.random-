@@ -1,9 +1,14 @@
 name: Deploy
 
-# Start this from the Actions tab: choose Deploy, then Run workflow.
-# "Use workflow from" picks the branch. "Where to deploy" picks the server copy.
-# The test copies are listed first so that main is always a deliberate choice.
+# Every push to main deploys main to the live site automatically.
+#
+# To deploy a test copy, start this from the Actions tab: choose Deploy, then
+# Run workflow. "Use workflow from" picks the branch. "Where to deploy" picks
+# the server copy. The test copies are listed first so that main is always a
+# deliberate choice.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       target:
@@ -27,12 +32,39 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # A push has no inputs, so it always deploys main.
+      DEPLOY_TARGET: ${{ inputs.target || 'main' }}
     steps:
+      # Until the app's Compose files are in main, a push has nothing to run,
+      # so skip it instead of failing. A manual deploy still fails loudly.
+      - name: Check for Compose files
+        id: compose
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          missing=""
+          for f in docker-compose.yml docker-compose.prod.yml; do
+            if ! gh api --silent "repos/$GITHUB_REPOSITORY/contents/$f?ref=$GITHUB_SHA" 2>/dev/null; then
+              missing="$missing $f"
+            fi
+          done
+          if [ -z "$missing" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+            echo "::notice::Skipped: this commit has no$missing yet."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::This commit has no$missing. Both Compose files are required to deploy."
+            exit 1
+          fi
+
       - name: Warn when not deploying main
-        if: inputs.target == 'main' && github.ref_name != 'main'
+        if: env.DEPLOY_TARGET == 'main' && github.ref_name != 'main'
         run: echo "::warning::The live site will run '${GITHUB_REF_NAME}'. Graders use main, so deploy main again when you finish testing."
 
       - name: Set up SSH
+        if: steps.compose.outputs.ready == 'true'
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
@@ -45,14 +77,13 @@ jobs:
       # The server only allows this key to run its deploy command, and the
       # target and commit are the only things sent to it.
       - name: Deploy to the server
-        env:
-          DEPLOY_TARGET: ${{ inputs.target }}
+        if: steps.compose.outputs.ready == 'true'
         run: |
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
             ubuntu@cse312-horrorslop.com "$DEPLOY_TARGET $GITHUB_SHA"
 
       - name: Check the live site
-        if: inputs.target == 'main'
+        if: steps.compose.outputs.ready == 'true' && env.DEPLOY_TARGET == 'main'
         run: curl -fsS --max-time 20 --retry 5 --retry-delay 3 --retry-connrefused -o /dev/null https://cse312-horrorslop.com/
 
       - name: Remove the SSH key
