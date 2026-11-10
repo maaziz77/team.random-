@@ -16,6 +16,22 @@ keys/
 .env.*
 !.env.example
 
+# Databases, Docker volume data, logs and uploads (made at runtime, may hold user data)
+/data/
+db-data/
+pgdata/
+mongo-data/
+/volumes/
+/uploads/
+*.db
+*.sqlite
+*.sqlite3
+*.sql.gz
+*.dump
+*.bak
+*.log
+/logs/
+
 # Dependencies and build output (rebuilt inside Docker)
 node_modules/
 .venv/
