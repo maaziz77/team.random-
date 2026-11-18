@@ -1,0 +1,13 @@
+{
+  "name": "horror-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Game server: Express pages + WebSocket sessions running the lobby and the maze",
+  "main": "src/server.js",
+  "scripts": { "start": "node src/server.js" },
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.18.0"
+  }
+}
