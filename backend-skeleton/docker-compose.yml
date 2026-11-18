@@ -1,0 +1,58 @@
+# The Maze (CSE 312): run locally with `docker compose up` → http://localhost:8080
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+      - auth
+    restart: unless-stopped
+
+  auth:
+    build: ./auth
+    environment:
+      DATABASE_URL: postgres://horror:${POSTGRES_PASSWORD:-horror-dev-password}@db:5432/horror
+      PRIVATE_KEY_DIR: /auth-keys      # private key: only this container mounts it
+      PUBLIC_KEY_DIR: /public-key      # public key: shared with the app
+      TOKEN_HOURS: "168"
+    volumes:
+      - auth_keys:/auth-keys
+      - public_key:/public-key
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  app:
+    build: ./app
+    environment:
+      PUBLIC_KEY_FILE: /public-key/public.pem
+    volumes:
+      - public_key:/public-key:ro
+    depends_on:
+      - auth
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: horror
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-horror-dev-password}
+      POSTGRES_DB: horror
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U horror -d horror"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    # no "ports:" on purpose: the database is only reachable from the other containers
+
+volumes:
+  db_data:
+  auth_keys:
+  public_key:

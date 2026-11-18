@@ -1,0 +1,6 @@
+{
+  "name": "horror-tests",
+  "private": true,
+  "scripts": { "e2e": "node e2e.js", "load": "node load.js" },
+  "dependencies": { "ws": "^8.18.0" }
+}
