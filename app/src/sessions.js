@@ -8,7 +8,6 @@
 const { LobbySim } = require("./lobby");
 const { MazeMatch } = require("./maze");
 const { makeLook } = require("./look");
-void MazeMatch;
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
 const MAX_PLAYERS = 40;
@@ -17,7 +16,7 @@ const LOBBY_GRACE = 15;      // s a disconnected player keeps their place in the
 const EMPTY_LIFETIME = 120;  // s a session with no connected humans survives
 const RESULTS_TIME = 14;     // s on the results screen before going back to the lobby
 // TODO (task #6): BOT_NAMES. All values in docs/SESSIONS.md.
-void TICK_HZ; void LOBBY_GRACE; void EMPTY_LIFETIME; void RESULTS_TIME;
+void TICK_HZ;
 
 const sessions = new Map();   // code → Session
 const sessionOf = new Map();  // username → the Session they're in (one session per user)
@@ -158,9 +157,79 @@ class Session {
         break;
     }
   }
-  // TODO (task #4): tick(dt), startMaze(teams), backToLobby(), destroy()
+
+  // ---- one tick of the session (docs/SESSIONS.md)
+  tick(dt) {
+    this.stageT += dt;
+    for (const p of [...this.players.values()]) {
+      if (p.ws || p.bot) continue;
+      p.offFor += dt;
+      if (this.stage === "lobby" && p.offFor > LOBBY_GRACE) this.removePlayer(p.name);
+    }
+    if (this.host) {
+      const h = this.players.get(this.host);
+      if (!h || (!h.ws && h.offFor > 5)) {
+        const c = this.connected();
+        if (c.length) { this.host = c[0].name; this.rosterChanged = true; }
+      }
+    }
+    if (!this.connected().length) {
+      this.emptyFor += dt;
+      if (this.emptyFor > EMPTY_LIFETIME) { this.destroy(); return; }
+    } else this.emptyFor = 0;
+    if (this.rosterChanged) { this.rosterChanged = false; this.broadcast(this.roster()); }
+
+    if (this.stage === "lobby") {
+      this.lobby.update(dt);
+      for (const e of this.lobby.drainEvents()) this.broadcast(e);
+      this.broadcast(this.lobby.snapshot());
+      if (this.lobby.done) this.startMaze(this.lobby.teams);
+    } else {
+      const match = this.match;
+      match.update(dt);
+      const snaps = new Map();
+      const viewOf = (p) => (p.team >= 0 ? p.team : match.clampTeam(p.watch));
+      for (const p of this.connected()) {
+        const team = viewOf(p);
+        if (!snaps.has(team)) snaps.set(team, JSON.stringify(match.snapshot(team)));
+        send(p.ws, snaps.get(team));
+      }
+      for (const [team, e] of match.drainEvents()) {
+        const s = JSON.stringify(e);
+        for (const p of this.connected()) if (viewOf(p) === team) send(p.ws, s);
+      }
+      if (match.boardDue()) this.broadcast(match.board());
+      if (this.stage === "maze" && match.over) {
+        this.stage = "results"; this.stageT = 0;
+        this.broadcast(match.results());
+      } else if (this.stage === "results" && this.stageT > RESULTS_TIME) this.backToLobby();
+    }
+  }
+  startMaze(teams) {
+    for (const p of this.players.values()) p.team = -1;
+    for (const t of teams) for (const name of t.members) {
+      const p = this.players.get(name);
+      if (p) p.team = t.id;
+    }
+    this.match = new MazeMatch(this, teams);
+    this.stage = "maze"; this.stageT = 0;
+    this.rosterChanged = true;
+    this.broadcast({ t: "go", to: "/maze?code=" + this.code });
+  }
+  backToLobby() {
+    for (const p of this.humans()) if (!p.ws) this.removePlayer(p.name);
+    for (const p of this.players.values()) { p.team = -1; p.watch = 0; }
+    this.match = null; this.stage = "lobby"; this.stageT = 0;
+    this.lobby = new LobbySim(this);
+    for (const p of this.players.values()) this.lobby.addPerson(p);
+    this.rosterChanged = true;
+    this.broadcast({ t: "go", to: "/play?code=" + this.code });
+  }
+  destroy() {
+    sessions.delete(this.code);
+    for (const name of this.players.keys()) if (sessionOf.get(name) === this) sessionOf.delete(name);
+  }
 }
-void Session;
 
 // TODO (task #4): the connection: first message host/join, rate limit 120/s, 10 s join timeout,
 // pings, then session.onMessage. See docs/SESSIONS.md ("connect").
