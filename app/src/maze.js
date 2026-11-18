@@ -279,7 +279,6 @@ class TeamSim {
 
   randomPatrolCell() {
     const k = this.k; const L = this.L; const M = this.monster;
-    const [mi, mj] = k.cellOf(M);
     for (let tries = 0; tries < 30; tries++) {
       const ci = Math.floor(Math.random() * L.COLS);
       const cj = Math.floor(Math.random() * L.ROWS);
@@ -392,7 +391,7 @@ class TeamSim {
       return;
     }
     const g = this.frontierGate(); const own = g ? this.owners(g) : [];
-    let free = new Set(bots);
+    let free = new Set(bots.filter(b => b.fleeT <= 0));
     // rescue first
     const frozen = this.members.filter(m => m.on && m.frozen);
     for (const f of frozen) {
@@ -414,7 +413,6 @@ class TeamSim {
     // assign plate tasks
     if (g) {
       for (const b of [...free]) {
-        const idx = this.members.indexOf(b);
         const plate = g.plates.find(p => p.idx === own.indexOf(b.name));
         if (plate) {
           const existing = (b.task && b.task.kind === "plate" && b.task.plate === plate) ? b.task : { kind: "plate", plate };
