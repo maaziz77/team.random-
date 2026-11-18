@@ -16,7 +16,6 @@ const LOBBY_GRACE = 15;      // s a disconnected player keeps their place in the
 const EMPTY_LIFETIME = 120;  // s a session with no connected humans survives
 const RESULTS_TIME = 14;     // s on the results screen before going back to the lobby
 // TODO (task #6): BOT_NAMES. All values in docs/SESSIONS.md.
-void TICK_HZ;
 
 const sessions = new Map();   // code → Session
 const sessionOf = new Map();  // username → the Session they're in (one session per user)
@@ -231,11 +230,83 @@ class Session {
   }
 }
 
-// TODO (task #4): the connection: first message host/join, rate limit 120/s, 10 s join timeout,
-// pings, then session.onMessage. See docs/SESSIONS.md ("connect").
-function connect(ws, user) { void user; ws.close(1011, "not built yet"); }
+// The connection: first message host/join, rate limit 120/s, 10 s join timeout, pings, then
+// session.onMessage. See docs/SESSIONS.md ("connect").
+function connect(ws, user) {
+  let session = null, player = null;
+  let budget = 120;
+  const refill = setInterval(() => { budget = 120; }, 1000);
+  const joinTimer = setTimeout(() => { if (!player) ws.close(4001, "no join"); }, 10000);
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
 
-// TODO (task #4): the 30 Hz tick loop over every session, and the 20 s ping loop.
-function start() {}
+  ws.on("message", (data, isBinary) => {
+    if (isBinary || --budget < 0) {
+      if (budget < -60) ws.close(4008, "too fast");
+      return;
+    }
+    let m;
+    try { m = JSON.parse(data.toString()); } catch { return; }
+    if (!m || typeof m !== "object" || Array.isArray(m) || typeof m.t !== "string") return;
+
+    if (!player) {
+      if (m.t === "host") {
+        const old = sessionOf.get(user);
+        if (old) old.removePlayer(user);
+        session = new Session(user);
+      } else if (m.t === "join") {
+        const code = typeof m.code === "string" ? m.code.toUpperCase() : "";
+        session = sessions.get(code);
+        if (!session) {
+          send(ws, { t: "err", code: "nosession" });
+          ws.close(4004, "no session");
+          return;
+        }
+        if (!session.players.has(user) && session.players.size >= MAX_PLAYERS && !session.bots().length) {
+          send(ws, { t: "err", code: "full" });
+          ws.close(4005, "full");
+          return;
+        }
+        const old = sessionOf.get(user);
+        if (old && old !== session) old.removePlayer(user);
+      } else return;
+      player = session.addPlayer(user);
+      session.attach(player, ws);
+      return;
+    }
+    if (session.players.get(user) !== player || player.ws !== ws) return; // replaced/removed
+    session.onMessage(player, m);
+  });
+
+  ws.on("close", () => {
+    clearInterval(refill);
+    clearTimeout(joinTimer);
+    if (session && player) session.detach(player, ws);
+  });
+  ws.on("error", () => {}); // close follows
+}
+
+// The 30 Hz tick loop over every session, and the 20 s ping loop.
+function start() {
+  let last = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    for (const s of [...sessions.values()]) {
+      try { s.tick(dt); } catch (e) { console.error(`app: session ${s.code} tick failed`, e); }
+    }
+  }, 1000 / TICK_HZ);
+  setInterval(() => {
+    for (const s of sessions.values()) {
+      for (const p of s.connected()) {
+        const ws = p.ws;
+        if (!ws.isAlive) { ws.terminate(); continue; }
+        ws.isAlive = false;
+        ws.ping();
+      }
+    }
+  }, 20000);
+}
 
 module.exports = { connect, start, sessions };
