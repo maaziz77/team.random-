@@ -123,7 +123,41 @@ class Session {
     const s = JSON.stringify(msg);
     for (const p of this.players.values()) send(p.ws, s);
   }
-  // TODO (task #4): onMessage(p, m)
+  // client → server messages (docs/PROTOCOL.md)
+  onMessage(p, m) {
+    const isHost = p.name === this.host;
+    const inWait = this.stage === "lobby" && this.lobby.phase === "wait";
+    switch (m.t) {
+      case "in": {
+        const axis = (v) => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);
+        p.input = { x: axis(m.x), y: axis(m.y) };
+        break;
+      }
+      case "shove":
+        if (this.stage === "lobby") p.shove = true;
+        break;
+      case "use":
+        if (this.stage === "maze") p.act = true;
+        break;
+      case "start":
+        if (isHost && this.stage === "lobby") this.lobby.start();
+        break;
+      case "length":
+        if (isHost && inWait && [2, 3, 4, 5].includes(m.min)) { this.matchMinutes = m.min; this.rosterChanged = true; }
+        break;
+      case "bots":
+        if (!isHost || !inWait) break;
+        if (m.clear === true) this.clearBots();
+        else if (Number.isInteger(m.add)) this.addBots(Math.max(1, Math.min(40, m.add)));
+        break;
+      case "watch":
+        if (Number.isInteger(m.team)) p.watch = m.team;
+        break;
+      case "ping":
+        send(p.ws, { t: "pong", c: m.c });
+        break;
+    }
+  }
   // TODO (task #4): tick(dt), startMaze(teams), backToLobby(), destroy()
 }
 void Session;
