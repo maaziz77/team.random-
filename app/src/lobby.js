@@ -173,7 +173,56 @@ class LobbySim {
     this.events.push({ t: "ev", e: "shove", n: a.name, f: a.face, hit });
   }
 
-  // TODO (task #5): emptiestCell, updateWatcher, finish
+  // ---- the Watcher (dragging stragglers)
+  emptiestCell() {
+    const live = [];
+    this.doors.forEach((d, s) => { if (d.live) live.push(s); });
+    const least = Math.min(...live.map((s) => this.occ[s]));
+    return pick(live.filter((s) => this.occ[s] === least));
+  }
+  updateWatcher(dt) {
+    const w = this.watcher;
+    if (w.mode === "home") {
+      const k = clamp(dt * 2, 0, 1);
+      w.x = lerp(w.x, 0, k); w.y = lerp(w.y, 0, k); w.scale = lerp(w.scale, 1, dt * 3);
+      return;
+    }
+    w.scale = lerp(w.scale, 1.25, dt * 2);
+    const hold = () => { if (w.carry) { w.carry.x = w.x; w.carry.y = w.y + 34; } };
+    if (w.pause > 0) { w.pause -= dt; hold(); return; }
+    let tx, ty;
+    if (!w.carry) {
+      const prey = this.outsiders();
+      if (!prey.length) return;
+      
+      let best = prey[0];
+      for (const a of prey) if (Math.hypot(a.x - w.x, a.y - w.y) < Math.hypot(best.x - w.x, best.y - w.y)) best = a;
+      tx = best.x; ty = best.y - 34;
+      if (Math.hypot(tx - w.x, ty - w.y) < 40) {                           // grab
+        w.carry = best; best.carried = true; best.vx = best.vy = 0; best.stun = 0; best.shoveT = 0;
+        const s = this.emptiestCell(), [dx, dy] = roomSpot(s);
+        w.dest = { x: dx, y: dy, s };
+        w.pause = 0.3; this.events.push({ t: "ev", e: "grab", n: best.name, cell: s }); hold(); return;
+      }
+    } else {
+      tx = w.dest.x; ty = w.dest.y - 34;
+      if (Math.hypot(tx - w.x, ty - w.y) < 18) {                           // drop
+        const a = w.carry;
+        a.x = w.dest.x; a.y = w.dest.y; a.carried = false; a.vx = a.vy = 0; a.stun = 0.5;
+        this.doors[w.dest.s].flash = 0.8;
+        this.events.push({ t: "ev", e: "drop", n: a.name, cell: w.dest.s, x: Math.round(a.x), y: Math.round(a.y) });
+        w.carry = null; w.pause = 0.2; return;
+      }
+    }
+    // fly straight there (over walls), faster the more people are left to fetch
+    const speed = 620 + 70 * Math.min(8, this.outsiders().length);
+    const d = Math.hypot(tx - w.x, ty - w.y), v = Math.min(speed, d / dt);
+    const k = clamp(dt * 6, 0, 1);
+    w.vx = lerp(w.vx, ((tx - w.x) / d) * v, k); w.vy = lerp(w.vy, ((ty - w.y) / d) * v, k);
+    w.x += w.vx * dt; w.y += w.vy * dt; hold();
+  }
+
+  // TODO (task #5): finish
   // TODO (task #6): steerTo, wanderVel, roomOf, navToRoom, chooseCell, botVel
   // TODO (task #5): one tick of the simulation
   update(dt) { void dt; }
