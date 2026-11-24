@@ -87,8 +87,26 @@ class Session {
 
   // ---- bots (docs/SESSIONS.md, docs/BOTS.md)
   bots() { return [...this.players.values()].filter((p) => p.bot); }
-  // TODO (task #6): the real replaceBot(name) (placeholder until then: never replaces)
-  replaceBot(name) { void name; return null; }
+  replaceBot(name) {
+    let list;
+    if (this.stage !== "lobby" && this.match) {
+      list = this.bots().filter((b) => b.team >= 0);
+      if (!list.length) return null;                 // the newcomer will spectate
+    } else {
+      list = this.bots();
+      const free = list.filter((b) => !this.lobby.isCarried(b.name));
+      if (free.length) list = free;
+    }
+    const bot = list[list.length - 1];
+    const p = this.newPlayer(name, false);
+    p.num = bot.num; p.team = bot.team;
+    this.players.delete(bot.name);
+    this.players.set(name, p);
+    if (this.stage === "lobby") this.lobby.replacePerson(bot.name, p);
+    else this.match.replaceMember(bot.name, name);
+    this.broadcast({ t: "ev", e: "replaced", bot: bot.name, n: name });
+    return p;
+  }
   addBots(n) {
     for (let i = 0; i < n && this.players.size < MAX_PLAYERS; i++) {
       const free = BOT_NAMES.find((b) => !this.players.has("Bot-" + b));

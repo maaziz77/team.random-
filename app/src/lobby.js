@@ -77,8 +77,14 @@ class LobbySim {
     this.people.delete(name);
   }
   isCarried(name) { const a = this.people.get(name); return !!(a && a.carried); }
-  // TODO (task #6): a real player takes over a bot's spot
-  replacePerson(botName, p) { void botName; void p; }
+  // a real player takes over a bot's spot (same position, same cell)
+  replacePerson(botName, p) {
+    const a = this.people.get(botName);
+    if (!a) { this.addPerson(p); return; }
+    this.people.delete(botName);
+    a.p = p; a.name = p.name; a.afk = false; a.speed = SPEED;
+    this.people.set(p.name, a);
+  }
 
   // ---- geometry
   valid(x, y, rad = BODY_R) {
