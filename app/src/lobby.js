@@ -222,12 +222,111 @@ class LobbySim {
     w.x += w.vx * dt; w.y += w.vy * dt; hold();
   }
 
-  // TODO (task #5): finish
-  // TODO (task #6): steerTo, wanderVel, roomOf, navToRoom, chooseCell, botVel
-  // TODO (task #5): one tick of the simulation
-  update(dt) { void dt; }
-  // TODO (task #5): the "L" snapshot (docs/PROTOCOL.md)
-  snapshot() { return { t: "L", ph: this.phase }; }
+  // ---- every cell with people becomes a team
+  finish() {
+    this.countCells();
+    const teams = [], placed = new Set();
+    this.doors.forEach((d, s) => {
+      if (!d.live) return;
+      const members = [...this.people.values()].filter((a) => cellOf(a.x, a.y) === s).map((a) => a.name);
+      if (!members.length) return;
+      for (const n of members) placed.add(n);
+      teams.push({ id: teams.length, cell: s, name: `Cell ${s + 1}`, color: CELL_COLORS[s], members });
+    });
+    for (const a of this.people.values()) {
+      if (placed.has(a.name)) continue;
+      if (!teams.length) teams.push({ id: 0, cell: 0, name: "Cell 1", color: CELL_COLORS[0], members: [] });
+      let small = teams[0];
+      for (const t of teams) if (t.members.length < small.members.length) small = t;
+      small.members.push(a.name);
+    }
+    this.teams = teams.filter((t) => t.members.length).map((t, i) => ({ ...t, id: i }));
+    this.done = true; this.phase = "done";
+  }
+
+  // TODO (task #6): steerTo, wanderVel, roomOf, navToRoom, chooseCell, and the real botVel
+  // (placeholder until then: bots stand still)
+  botVel(a, dt, heading) { void a; void dt; void heading; return [0, 0]; }
+
+  // ---- one tick of the simulation
+  update(dt) {
+    this.phaseT += dt; this.countCells();
+    const everyone = [...this.people.values()];
+    const allIn = everyone.length > 0 && everyone.every((a) => !a.carried && cellOf(a.x, a.y) >= 0);
+    if (this.phase === "gather") {
+      this.gatherLeft -= dt;
+      if (allIn) this.setPhase("allin"); else if (this.gatherLeft <= 0) this.setPhase("mad");
+    } else if (this.phase === "allin") {
+      if (!allIn) this.setPhase("gather"); else if (this.phaseT >= ALLIN_T) this.setPhase("seal");
+    } else if (this.phase === "mad") {
+      if (!this.watcher.carry && !this.outsiders().length && this.phaseT > 1.2) this.setPhase("seal");
+    } else if (this.phase === "seal" && this.phaseT >= SEAL_T) { this.finish(); return; }
+
+    this.carouselSpeed = lerp(this.carouselSpeed, this.phase === "seal" ? 0 : CAROUSEL_SPEED, clamp(dt * 1.5, 0, 1));
+    this.carouselAngle = (this.carouselAngle + this.carouselSpeed * dt) % (Math.PI * 2);
+    for (const d of this.doors) {
+      d.open = clamp(d.open + Math.sign(d.target - d.open) * dt * (d.target ? 3 : 7), 0, 1);
+      d.flash = Math.max(0, d.flash - dt);
+    }
+
+    const heading = new Array(ROOMS).fill(0);
+    for (const a of everyone) if (a.p.bot && a.goal >= 0 && cellOf(a.x, a.y) !== a.goal) heading[a.goal]++;
+
+    for (const a of everyone) {
+      const pl = a.p;
+      if (a.carried) { pl.shove = false; continue; }
+      a.shoveCd -= dt; a.stun -= dt;
+      let vx = 0, vy = 0;
+      if (a.shoveT > 0) { a.shoveT -= dt; vx = a.shoveDir[0] * 430; vy = a.shoveDir[1] * 430; }
+      else if (a.stun > 0) { vx = a.vx; vy = a.vy; }
+      else if (this.phase !== "seal" && pl.bot) [vx, vy] = this.botVel(a, dt, heading);
+      else if (this.phase !== "seal") {
+        const ix = pl.input.x, iy = pl.input.y, l = Math.hypot(ix, iy);
+        if (l > 0.01) { vx = ix / Math.max(1, l) * SPEED; vy = iy / Math.max(1, l) * SPEED; a.lastDir = [ix / l, iy / l]; }
+        if (pl.shove) { const d = a.lastDir || [a.face, 0]; this.shove(a, d[0], d[1]); }
+      }
+      pl.shove = false;
+      // the spinning floor carries whoever stands on it
+      if (Math.hypot(a.x, a.y) < CAROUSEL_R && this.carouselSpeed > 0.01) { vx += -a.y * this.carouselSpeed; vy += a.x * this.carouselSpeed; }
+      if (a.stun > 0) { a.vx *= 1 - dt * 5; a.vy *= 1 - dt * 5; }
+      else { const k = clamp(dt * 14, 0, 1); a.vx = lerp(a.vx, vx, k); a.vy = lerp(a.vy, vy, k); }
+      this.moveActor(a, a.vx * dt, a.vy * dt);
+      if (Math.abs(a.vx) > 20) a.face = a.vx > 0 ? 1 : -1;
+    }
+
+    // personal space: push overlapping pairs apart (never through a full cell's door)
+    for (let i = 0; i < everyone.length; i++) {
+      const a = everyone[i];
+      if (a.carried) continue;
+      for (let j = i + 1; j < everyone.length; j++) {
+        const b = everyone[j];
+        if (b.carried) continue;
+        const d = Math.hypot(b.x - a.x, b.y - a.y), m = 2 * BODY_R;
+        if (d < m && d > 0.01) {
+          const p = (m - d) / 2, ux = (b.x - a.x) / d, uy = (b.y - a.y) / d;
+          const ax = a.x - ux * p, ay = a.y - uy * p, bx = b.x + ux * p, by = b.y + uy * p;
+          if (this.valid(ax, ay) && !this.crossing(a, ax, ay)) { a.x = ax; a.y = ay; }
+          if (this.valid(bx, by) && !this.crossing(b, bx, by)) { b.x = bx; b.y = by; }
+        }
+      }
+    }
+
+    this.updateWatcher(dt);
+  }
+
+  // ---- the "L" snapshot (docs/PROTOCOL.md)
+  snapshot() {
+    const r1 = (v) => Math.round(v * 10) / 10, r2 = (v) => Math.round(v * 100) / 100, r3 = (v) => Math.round(v * 1000) / 1000;
+    const w = this.watcher;
+    return {
+      t: "L", ph: this.phase, tl: Math.max(0, r1(this.gatherLeft)), pt: r1(this.phaseT),
+      ca: r3(this.carouselAngle), cs: r2(this.carouselSpeed), cap: this.cap, tc: this.teamCount,
+      live: this.doors.map((d) => (d.live ? 1 : 0)), occ: this.occ, dr: this.doors.map((d) => Math.round(d.open * 100)),
+      fl: this.doors.map((d) => Math.round(d.flash * 10)),
+      w: [Math.round(w.x), Math.round(w.y), w.mode === "drag" ? 1 : 0, Math.round(w.scale * 100), w.carry ? w.carry.name : null],
+      p: [...this.people.values()].map((a) => [a.name, Math.round(a.x), Math.round(a.y), (a.carried ? 1 : 0) | (a.stun > 0 ? 2 : 0), a.face]),
+    };
+  }
 }
 
 module.exports = { LobbySim, planLobby };
