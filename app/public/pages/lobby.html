@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lobby – The Maze</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=Luckiest+Guy&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="lobby">
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="info">
+      <div id="me" class="name"></div>
+      <div class="tags"><span id="alive" class="tag"></span><span id="round" class="tag dim"></span></div>
+    </div>
+    <div id="clock" class="hidden">1:00</div>
+    <div id="caption"></div>
+    <div id="sub"></div>
+    <div id="bar"><div id="bar-fill"></div></div>
+    <div id="controls"><kbd>WASD</kbd> move <kbd>SPACE</kbd> shove <kbd>WHEEL</kbd> zoom</div>
+
+    <aside id="session" class="waiting">
+      <div class="ribbon small yellow">Session</div>
+      <div class="code-row"><span id="code" class="code">·····</span><button id="copy" class="mini">Copy link</button></div>
+      <button id="start-btn" class="btn hidden"><span>Start</span></button>
+      <div id="len-ctl" class="bot-ctl">
+        <span>Maze</span>
+        <button class="mini" data-min="2">2m</button>
+        <button class="mini" data-min="3">3m</button>
+        <button class="mini" data-min="4">4m</button>
+        <button class="mini" data-min="5">5m</button>
+      </div>
+      <div id="bot-ctl" class="bot-ctl hidden">
+        <span>Bots</span>
+        <button class="mini" data-add="1">+1</button>
+        <button class="mini" data-add="3">+3</button>
+        <button class="mini" data-add="7">+7</button>
+        <button class="mini" data-clear="1">Clear</button>
+      </div>
+      <div class="roster-head"><span id="count"></span><a href="/" class="mini">Leave</a></div>
+      <ol id="roster"></ol>
+    </aside>
+  </div>
+
+  <div id="enter" class="screen comic fit">
+    <div class="fit-inner">
+      <div class="splash small">
+        <div class="ribbon yellow">The lobby</div>
+        <p class="sticker">Pick a cell. Your cellmates are your team.</p>
+      </div>
+      <div class="cards" id="howto"></div>
+      <div class="cta">
+        <button id="enter-btn" class="btn"><span>Enter the hall</span></button>
+        <p class="keys"><kbd>WASD</kbd> move <kbd>SPACE</kbd> shove <kbd>WHEEL</kbd> zoom</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="lost" class="screen comic hidden">
+    <div class="splash small">
+      <h1 class="logo"><span>BYE</span></h1>
+      <p id="lost-text" class="sticker"></p>
+    </div>
+    <div class="cta"><a class="btn" href="/"><span>Home</span></a></div>
+  </div>
+
+  <script src="/static/assets/manifest.js"></script>
+  <script src="/static/art.js"></script>
+  <script src="/static/ui.js"></script>
+  <script src="/static/js/net.js"></script>
+  <script src="/static/js/howto-lobby.js"></script>
+  <script src="/static/js/lobby.js"></script>
+</body>
+</html>
