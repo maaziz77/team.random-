@@ -276,8 +276,30 @@ class LobbySim {
     }
     return this.steerTo(a, o[0], o[1], a.speed);                                          // go to the doorway
   }
-  // TODO (task #6): chooseCell, and the real botVel (placeholder until then: bots stand still)
-  botVel(a, dt, heading) { void a; void dt; void heading; return [0, 0]; }
+  // a live cell with room (counting bots on their way), biased to near ones
+  chooseCell(a, heading) {
+    let best = -1, bestScore = Infinity;
+    this.doors.forEach((d, s) => {
+      if (!d.live || this.occ[s] + heading[s] >= this.cap) return;
+      const [dx, dy] = doorPoint(s, R);
+      const score = Math.hypot(a.x - dx, a.y - dy) + rand(0, 420);
+      if (score < bestScore) { bestScore = score; best = s; }
+    });
+    return best;
+  }
+  botVel(a, dt, heading) {
+    if (this.phase === "wait") return this.wanderVel(a, dt, 0.8);
+    const here = cellOf(a.x, a.y);
+    if (here >= 0) { a.goal = here; return this.navToRoom(a, here); }          // in a cell: settle in, stay
+    if (a.afk) return this.phase === "mad" ? [0, 0] : this.wanderVel(a, dt, 0.35);
+    if (GATHER - this.gatherLeft < a.joinAt && this.phase === "gather") return this.wanderVel(a, dt, 1);
+    if (a.goal < 0 || this.occ[a.goal] >= this.cap) {
+      if (a.goal >= 0) heading[a.goal]--;
+      a.goal = this.chooseCell(a, heading); a.wp = null;
+      if (a.goal >= 0) heading[a.goal]++;
+    }
+    return a.goal >= 0 ? this.navToRoom(a, a.goal) : this.wanderVel(a, dt, 1);
+  }
 
   // ---- one tick of the simulation
   update(dt) {
