@@ -30,7 +30,7 @@ Abbreviated field names are deliberate (small messages at 30 Hz). Use exactly th
 | `length` | `min` (2, 3, 4 or 5) | host only, lobby stage, lobby phase `wait`: set the match length in minutes; mark roster changed |
 | `bots` | `add` (integer) **or** `clear: true` | host only, lobby stage, lobby phase `wait`: add `clamp(add, 1, 40)` bots (never past 40 players), or remove all bots |
 | `watch` | `team` (integer) | maze: which team a spectator watches (`player.watch = team`) |
-| `ping` | `c` | reply `{t:"pong", c}` |
+| `ping` | `c` | reply `{t:"pong", c}`. The game pages send one every 2 s and show the round trip as a wifi icon with bars (`Ping` in `js/net.js`) |
 
 Messages from a connection that has been replaced (another tab took over) are ignored.
 
