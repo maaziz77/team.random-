@@ -17,7 +17,7 @@ const GATHER = 20;              // seconds to pick a cell after the host presses
 const ALLIN_T = 8.2;            // everyone's in → doors slam after 8.2 s (timed to the music on the client)
 const SEAL_T = 2.6;             // doors shut → teams formed after 2.6 s
 const MAX_TEAM = 4;
-// TODO (task #6): BOT_AFK
+const BOT_AFK = 0.15;           // share of bots that never pick a cell
 const SPEED = 205;              // player speed px/s
 const CAROUSEL_SPEED = 0.42;    // rad/s
 const CELL_COLORS = ["#ffd23f", "#3fa7ff", "#ff6f86", "#43c47a", "#9b6bff", "#ffb000", "#1fae95", "#ff7a3d", "#5b7bff", "#c98b5a"];
@@ -28,7 +28,6 @@ const sectorOf = (th) => ((Math.round(th / SW) % ROOMS) + ROOMS) % ROOMS;
 const sectorPhi = (th, s) => wrap(th - s * SW);
 const fromPolar = (r, th) => [Math.cos(th) * r, Math.sin(th) * r];
 const doorPoint = (s, r) => fromPolar(r, s * SW);
-void doorPoint; // used by the bot brain (task #6)
 function cellOf(x, y) { const [r, th] = polar(x, y); return r > ZONE_R ? sectorOf(th) : -1; }
 // a random standing spot inside cell s
 function roomSpot(s) {
@@ -67,7 +66,7 @@ class LobbySim {
       stun: 0, shoveT: 0, shoveCd: 0, shoveDir: [1, 0], carried: false,
       // bot brain (docs/BOTS.md)
       goal: -1, wp: null, wpRoom: -1, wanderT: 0, joinAt: rand(3, GATHER * 0.7),
-      afk: false, // TODO (task #6): !!p.bot && Math.random() < BOT_AFK
+      afk: !!p.bot && Math.random() < BOT_AFK,
       speed: p.bot ? rand(150, 185) : SPEED,
     });
     if (this.teamCount && this.phase !== "wait") this.ensureRoom();
@@ -78,8 +77,14 @@ class LobbySim {
     this.people.delete(name);
   }
   isCarried(name) { const a = this.people.get(name); return !!(a && a.carried); }
-  // TODO (task #6): a real player takes over a bot's spot
-  replacePerson(botName, p) { void botName; void p; }
+  // a real player takes over a bot's spot (same position, same cell)
+  replacePerson(botName, p) {
+    const a = this.people.get(botName);
+    if (!a) { this.addPerson(p); return; }
+    this.people.delete(botName);
+    a.p = p; a.name = p.name; a.afk = false; a.speed = SPEED;
+    this.people.set(p.name, a);
+  }
 
   // ---- geometry
   valid(x, y, rad = BODY_R) {
@@ -244,9 +249,63 @@ class LobbySim {
     this.done = true; this.phase = "done";
   }
 
-  // TODO (task #6): steerTo, wanderVel, roomOf, navToRoom, chooseCell, and the real botVel
-  // (placeholder until then: bots stand still)
-  botVel(a, dt, heading) { void a; void dt; void heading; return [0, 0]; }
+  // ---- the bot brain (docs/BOTS.md)
+  // unit vector to the target, pushed away from the pedestal: [vx, vy, d]
+  steerTo(a, tx, ty, speed) {
+    const d = Math.hypot(tx - a.x, ty - a.y);
+    let dx = (tx - a.x) / (d || 1), dy = (ty - a.y) / (d || 1);
+    const r = Math.hypot(a.x, a.y);
+    if (r < PED_R + 70) { dx += a.x / r * 0.9; dy += a.y / r * 0.9; }
+    const l = Math.hypot(dx, dy) || 1;
+    return [dx / l * speed, dy / l * speed, d];
+  }
+  wanderVel(a, dt, mul = 1) {
+    a.wanderT -= dt;
+    if (!a.wp || a.wpRoom !== -1 || a.wanderT <= 0) {
+      a.wanderT = rand(1.5, 4); a.wp = fromPolar(rand(PED_R + 50, R - 60), rand(0, Math.PI * 2)); a.wpRoom = -1;
+    }
+    const [vx, vy, d] = this.steerTo(a, a.wp[0], a.wp[1], a.speed * 0.55 * mul);
+    return d < 14 ? [0, 0] : [vx, vy];
+  }
+  roomOf(a) { const [r, th] = polar(a.x, a.y); return r > R + WALL * 0.5 ? sectorOf(th) : -1; }
+  navToRoom(a, s) {
+    const here = this.roomOf(a);
+    if (here === s) {
+      if (!a.wp || a.wpRoom !== s) { a.wp = roomSpot(s); a.wpRoom = s; }
+      const [vx, vy, d] = this.steerTo(a, a.wp[0], a.wp[1], a.speed);
+      return d < 10 ? [0, 0] : [vx, vy];
+    }
+    if (here >= 0) return this.steerTo(a, ...doorPoint(here, R - 40), a.speed);          // leave the wrong cell first
+    const o = doorPoint(s, R - 34);
+    if (Math.hypot(a.x - o[0], a.y - o[1]) < 36 || Math.hypot(a.x, a.y) > R - 40) {
+      return this.steerTo(a, ...doorPoint(s, R + WALL + 60), a.speed);                   // go through
+    }
+    return this.steerTo(a, o[0], o[1], a.speed);                                          // go to the doorway
+  }
+  // a live cell with room (counting bots on their way), biased to near ones
+  chooseCell(a, heading) {
+    let best = -1, bestScore = Infinity;
+    this.doors.forEach((d, s) => {
+      if (!d.live || this.occ[s] + heading[s] >= this.cap) return;
+      const [dx, dy] = doorPoint(s, R);
+      const score = Math.hypot(a.x - dx, a.y - dy) + rand(0, 420);
+      if (score < bestScore) { bestScore = score; best = s; }
+    });
+    return best;
+  }
+  botVel(a, dt, heading) {
+    if (this.phase === "wait") return this.wanderVel(a, dt, 0.8);
+    const here = cellOf(a.x, a.y);
+    if (here >= 0) { a.goal = here; return this.navToRoom(a, here); }          // in a cell: settle in, stay
+    if (a.afk) return this.phase === "mad" ? [0, 0] : this.wanderVel(a, dt, 0.35);
+    if (GATHER - this.gatherLeft < a.joinAt && this.phase === "gather") return this.wanderVel(a, dt, 1);
+    if (a.goal < 0 || this.occ[a.goal] >= this.cap) {
+      if (a.goal >= 0) heading[a.goal]--;
+      a.goal = this.chooseCell(a, heading); a.wp = null;
+      if (a.goal >= 0) heading[a.goal]++;
+    }
+    return a.goal >= 0 ? this.navToRoom(a, a.goal) : this.wanderVel(a, dt, 1);
+  }
 
   // ---- one tick of the simulation
   update(dt) {

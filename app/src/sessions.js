@@ -15,7 +15,8 @@ const TICK_HZ = 30;
 const LOBBY_GRACE = 15;      // s a disconnected player keeps their place in the lobby
 const EMPTY_LIFETIME = 120;  // s a session with no connected humans survives
 const RESULTS_TIME = 14;     // s on the results screen before going back to the lobby
-// TODO (task #6): BOT_NAMES. All values in docs/SESSIONS.md.
+const BOT_NAMES = ["Ada", "Bea", "Cal", "Dot", "Eli", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kit", "Lou", "Max", "Ned", "Oz", "Pip",
+  "Quin", "Rex", "Sid", "Tia", "Uma", "Vic", "Wes", "Xan", "Yui", "Zed", "Ari", "Bo", "Cy", "Di", "Ed", "Flo", "Gil", "Hux", "Ike", "Jem", "Kai", "Lev", "Mo", "Nia"];
 
 const sessions = new Map();   // code → Session
 const sessionOf = new Map();  // username → the Session they're in (one session per user)
@@ -84,12 +85,39 @@ class Session {
     this.host = c ? c.name : null;
   }
 
-  // TODO (task #6): the real bots(), replaceBot(name), addBots(n), clearBots() (placeholders
-  // until then: there are no bots yet)
-  bots() { return []; }
-  replaceBot(name) { void name; return null; }
-  addBots(n) { void n; }
-  clearBots() {}
+  // ---- bots (docs/SESSIONS.md, docs/BOTS.md)
+  bots() { return [...this.players.values()].filter((p) => p.bot); }
+  replaceBot(name) {
+    let list;
+    if (this.stage !== "lobby" && this.match) {
+      list = this.bots().filter((b) => b.team >= 0);
+      if (!list.length) return null;                 // the newcomer will spectate
+    } else {
+      list = this.bots();
+      const free = list.filter((b) => !this.lobby.isCarried(b.name));
+      if (free.length) list = free;
+    }
+    const bot = list[list.length - 1];
+    const p = this.newPlayer(name, false);
+    p.num = bot.num; p.team = bot.team;
+    this.players.delete(bot.name);
+    this.players.set(name, p);
+    if (this.stage === "lobby") this.lobby.replacePerson(bot.name, p);
+    else this.match.replaceMember(bot.name, name);
+    this.broadcast({ t: "ev", e: "replaced", bot: bot.name, n: name });
+    return p;
+  }
+  addBots(n) {
+    for (let i = 0; i < n && this.players.size < MAX_PLAYERS; i++) {
+      const free = BOT_NAMES.find((b) => !this.players.has("Bot-" + b));
+      const name = free ? "Bot-" + free : "Bot-" + (this.players.size + 1);
+      const p = this.newPlayer(name, true);
+      this.players.set(name, p);
+      this.lobby.addPerson(p);
+    }
+    this.rosterChanged = true;
+  }
+  clearBots() { for (const b of this.bots()) this.removePlayer(b.name); }
 
   // ---- connections
   attach(p, ws) {
