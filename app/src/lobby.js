@@ -121,9 +121,59 @@ class LobbySim {
   inCells() { return [...this.people.values()].filter((a) => !a.carried && cellOf(a.x, a.y) >= 0); }
   outsiders() { return [...this.people.values()].filter((a) => !a.carried && cellOf(a.x, a.y) < 0); }
 
-  // TODO (task #5): start, ensureRoom, setPhase, emptiestCell, updateWatcher, shove, finish
-  start() {}
+  // ---- starting and phases
+  start() {                                   // host only (checked by the session)
+    if (this.phase !== "wait" || !this.people.size) return;
+    const plan = planLobby(this.people.size); this.teamCount = plan.teams; this.cap = plan.cap;
+    // open plan.teams cells spread evenly round the ring, starting at a random one
+    const off = Math.floor(Math.random() * ROOMS), set = new Set();
+    for (let q = 0; q < plan.teams; q++) set.add((off + Math.round(q * ROOMS / plan.teams)) % ROOMS);
+    this.doors.forEach((d, s) => { d.live = set.has(s); d.target = d.live ? 1 : 0; });
+    this.gatherLeft = GATHER; this.setPhase("gather");
+  }
+  // someone joined late: open another cell (random closed one), or let cells hold one more
+  ensureRoom() {
+    while (this.teamCount * this.cap < this.people.size) {
+      const closed = [];
+      this.doors.forEach((d, s) => { if (!d.live) closed.push(s); });
+      if (closed.length && this.teamCount < ROOMS) {
+        const d = this.doors[pick(closed)];
+        d.live = true; d.target = 1; this.teamCount++;
+      } else this.cap++;
+    }
+  }
+  setPhase(ph) {
+    this.phase = ph; this.phaseT = 0;
+    if (ph === "mad") { this.watcher.mode = "drag"; this.watcher.pause = 1.1; }
+    if (ph === "seal") {
+      this.watcher.mode = "home"; this.watcher.carry = null;
+      for (const a of this.people.values()) a.carried = false;
+      for (const d of this.doors) d.target = 0;
+      // anyone standing in a doorway steps inside before it shuts
+      for (const a of this.people.values()) {
+        const s = cellOf(a.x, a.y), [r, th] = polar(a.x, a.y);
+        if (s >= 0 && r < R + WALL + BODY_R + 4) { [a.x, a.y] = fromPolar(R + WALL + BODY_R + 6, th); a.vx = a.vy = 0; }
+      }
+    }
+    this.events.push({ t: "ev", e: "phase", ph });
+  }
   drainEvents() { const e = this.events; this.events = []; return e; }
+
+  // ---- shoving (Space)
+  shove(a, dx, dy) {
+    if (a.shoveCd > 0 || a.stun > 0 || a.carried) return;
+    const l = Math.hypot(dx, dy) || 1;
+    a.shoveDir = [dx / l, dy / l]; a.shoveT = 0.16; a.shoveCd = 1.1; a.face = dx >= 0 ? 1 : -1;
+    const [sx, sy] = a.shoveDir, hit = [];
+    for (const o of this.people.values()) {
+      if (o === a || o.carried) continue;
+      const ox = o.x - a.x, oy = o.y - a.y, od = Math.hypot(ox, oy);
+      if (od < 58 && (ox * sx + oy * sy) / (od || 1) > 0.3) { o.vx = sx * 560; o.vy = sy * 560; o.stun = 0.45; hit.push(o.name); }
+    }
+    this.events.push({ t: "ev", e: "shove", n: a.name, f: a.face, hit });
+  }
+
+  // TODO (task #5): emptiestCell, updateWatcher, finish
   // TODO (task #6): steerTo, wanderVel, roomOf, navToRoom, chooseCell, botVel
   // TODO (task #5): one tick of the simulation
   update(dt) { void dt; }
